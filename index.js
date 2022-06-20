@@ -126,7 +126,7 @@ class WalletConnect extends RpcEngine {
         if (!result.peerMeta) throw new Error('session missing peerMeta')
         this.peerId = result.peerId
         this.peerMeta = result.peerMeta
-        this.chainId = result.chainId
+        this.chainId = result.chainId || this.chainId
         this.rpcUrl = result.rpcUrl
         this.peerAccounts = result.accounts || []
         this.methods.wc_sessionUpdate = this.updateSession
@@ -178,7 +178,7 @@ class WalletConnect extends RpcEngine {
     const params = request.params
     this.peerId = params.peerId
     this.peerMeta = params.peerMeta
-    this.chainId = params.chainId
+    this.chainId = params.chainId || this.chainId
     this.peerRequests = this.peerRequests.filter(req => req.id !== request.id)
     delete this.methods.wc_sessionRequest
     this.defaultMethod = this.makePeerRequest
