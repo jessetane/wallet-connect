@@ -364,8 +364,9 @@ class WalletConnect extends RpcEngine {
   async handleRequest (name, message) {
     // override of RpcEngine's handleRequest
     // to capture the current request context
-    if (!message || message.id === undefined) return
-    this.currentRequestId = message.id
+    if (message && message.id !== undefined) {
+      this.currentRequestId = message.id
+    }
     return super.handleRequest(name, message)
   }
 }
