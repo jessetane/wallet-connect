@@ -202,7 +202,7 @@ class WalletConnect extends RpcEngine {
     if (params.approved === false) {
       this.destroySession(new Error('peer terminated the session'))
     } else {
-      this.peerAccounts = params.accounts
+      this.peerAccounts = params.accounts || this.peerAccounts
       this.chainId = params.chainId || this.chainId
       this.rpcUrl = params.rpcUrl || this.rpcUrl
       this.dispatchEvent(new Event('sessionUpdate'))
