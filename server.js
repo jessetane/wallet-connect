@@ -62,9 +62,9 @@ wsServer.on('connection', (client, req) => {
       if (session.subs) {
         session.subs = session.subs.filter(sub => sub !== this)
         if (session.subs.length === 0) delete session.subs
-        delete client.sessions
       }
     })
+    delete client.sessions
     client.removeListener('error', onclose)
     client.removeListener('close', onclose)
     client.removeListener('message', onmessage)
@@ -86,13 +86,10 @@ function cull () {
     const session = sessions[key]
     const maxAge = 1 * 60 * 1000
     if (now - session.touched > maxAge) {
-      console.log('clearing session', key)
-      if (session.subs) {
-        session.subs.forEach(sub => {
-          sub.sessions = sub.sessions.filter(s => s !== session)
-        })
+      if (!session.subs) {
+        console.log('clearing session', key)
+        delete sessions[key]
       }
-      delete sessions[key]
     }
   }
   setTimeout(cull, cullInterval)
