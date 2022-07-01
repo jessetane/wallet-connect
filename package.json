@@ -1,9 +1,9 @@
 {
   "name": "wallet-connect",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "dependencies": {
-    "deferred": "github:jessetane/deferred",
+    "deferred": "github:jessetane/deferred#1.0.0",
     "hex-transcoder": "^2.0.0",
     "rpc-engine": "^11.0.0",
     "utf8-transcoder": "^2.1.1"
