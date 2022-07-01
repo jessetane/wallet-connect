@@ -17,11 +17,12 @@ class WalletConnect extends RpcEngine {
     this.chainId = opts.chainId || null
     this.rpcUrl = opts.rpcUrl || null
     this.accounts = opts.accounts || null
+    this.requests = opts.requests || []
+    this.deeplink = opts.deeplink || null
     this.peerId = opts.peerId || null
     this.peerMeta = opts.peerMeta || null
     this.peerAccounts = opts.peerAccounts || []
     this.peerRequests = opts.peerRequests || []
-    this.requests = opts.requests || []
     this.bridgeUrl = opts.bridgeUrl || 'https://bridge.walletconnect.org'
     if (opts.uri) {
       this.uri = opts.uri
@@ -51,11 +52,12 @@ class WalletConnect extends RpcEngine {
   get session () {
     return {
       id: this.id,
-      peerId: this.peerId,
-      peerMeta: this.peerMeta,
       chainId: this.chainId,
       accounts: this.accounts,
       requests: this.requests,
+      deeplink: this.deeplink,
+      peerId: this.peerId,
+      peerMeta: this.peerMeta,
       peerAccounts: this.peerAccounts,
       peerRequests: this.peerRequests,
       handshakeId: this.handshakeId,
@@ -318,6 +320,11 @@ class WalletConnect extends RpcEngine {
       // control plane
       this.socket.send(JSON.stringify(message))
       return
+    }
+    // focus the wallet in a dapp/mobile/deeplink environment
+    if (this.initiator && this.deeplink && message.method !== 'wc_sessionUpdate') {
+      const deeplink = `${this.deeplink}?uri=wc:${this.handshakeId}@${this.version}`
+      window.location = deeplink
     }
     // data plane
     if (!this.cipherKey || !this.hmacKey) {
