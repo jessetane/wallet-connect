@@ -32,10 +32,9 @@ class WalletConnect extends RpcEngine {
       this.bridge = opts.bridge || `${this.bridgeUrl.replace(/^http/, 'ws')}/?env=browser&protocol=wc&version=${this.version}&host=${this.meta && this.meta.host || 'localhost:8080'}`
       this.key = opts.key || this.crypto.getRandomValues(new Uint8Array(32))
     }
-    this.onbridgeClose = this.onbridgeClose.bind(this)
     this.receive = this.receive.bind(this)
   }
-  
+
   set uri (uri) {
     let parts = uri.split('@')
     this.handshakeId = parts[0].slice(3)
@@ -107,71 +106,84 @@ class WalletConnect extends RpcEngine {
     })
   }
 
-  get approved () {
-    return !!this.defaultMethod
+  async openBridge (resolveWhenOpen) {
+    clearTimeout(this.bridgeTimeout)
+    this.closed = false
+    if (this.socket && this.socket.readyState === 1) return
+    if (resolveWhenOpen) {
+      this.onopenBridge = new Deferred()
+    }
+    const socket = this.socket = new WebSocket(this.bridge + '?env=browser&protocol=wc&version=' + this.version)
+    const onopen = async () => {
+      clearTimeout(this.bridgeTimeout)
+      await this.send({ topic: this.id, type: 'sub', silent: true, payload: '' })
+      if (this.onopenBridge) {
+        const d = this.onopenBridge
+        delete this.onopenBridge
+        d.resolve()
+      } else {
+        this.dispatchEvent(new Event('sessionUpdate'))
+      }
+    }
+    const onclose = () => {
+      clearTimeout(this.bridgeTimeout)
+      socket.removeEventListener('open', onopen)
+      socket.removeEventListener('close', onclose)
+      socket.removeEventListener('message', this.receive)
+      delete this.socket
+      if (this.closed) return
+      this.bridgeTimeout = setTimeout(() => this.openBridge(), 5 * 1000)
+    }
+    socket.addEventListener('open', onopen)
+    socket.addEventListener('close', onclose)
+    socket.addEventListener('message', this.receive)
+    this.bridgeTimeout = setTimeout(() => socket.close(), 5 * 1000)
+    if (resolveWhenOpen) {
+      return this.onopenBridge
+    }
+  }
+
+  closeBridge () {
+    clearTimeout(this.bridgeTimeout)
+    this.closed = true
+    if (this.socket) {
+      this.socket.close()
+    }
   }
 
   async createSession () {
-    try {
-      await this.send({ topic: this.id, type: 'sub', silent: true, payload: '' })
-      if (this.initiator) {
-        // dap
-        const result = await this.call('wc_sessionRequest', {
-          peerId: this.id,
-          peerMeta: this.meta,
-          chainId: this.chainId,
-          rpcUrl: this.rpcUrl
-        })
-        if (!result.peerId) throw new Error('session missing peerId')
-        if (!result.peerMeta) throw new Error('session missing peerMeta')
-        this.peerId = result.peerId
-        this.peerMeta = result.peerMeta
-        this.chainId = result.chainId || this.chainId
-        this.rpcUrl = result.rpcUrl
-        this.peerAccounts = result.accounts || []
-        this.methods.wc_sessionUpdate = this.updateSession
-        this.defaultMethod = this.makePeerRequest
-      } else {
-        // wallet
-        this.methods.wc_sessionRequest = this.requestSession
-        await this.send({ topic: this.handshakeId, type: 'sub', silent: true, payload: '' })
-        const d = this.onapproveSession = new Deferred()
-        return d
-      }
-    } catch (err) {
-      this.destroySession(err)
-      throw err
+    await this.openBridge(true)
+    if (this.initiator) {
+      // dapp
+      const result = await this.call('wc_sessionRequest', {
+        peerId: this.id,
+        peerMeta: this.meta,
+        chainId: this.chainId,
+        rpcUrl: this.rpcUrl
+      })
+      if (!result.peerId) throw new Error('session missing peerId')
+      if (!result.peerMeta) throw new Error('session missing peerMeta')
+      this.peerId = result.peerId
+      this.peerMeta = result.peerMeta
+      this.chainId = result.chainId || this.chainId
+      this.rpcUrl = result.rpcUrl
+      this.peerAccounts = result.accounts || []
+      this.methods.wc_sessionUpdate = this.onupdateSession
+      this.defaultMethod = this.makePeerRequest
+      this.dispatchEvent(new Event('sessionUpdate'))
+    } else {
+      // wallet
+      this.methods.wc_sessionRequest = this.onrequestSession
+      await this.send({ topic: this.handshakeId, type: 'sub', silent: true, payload: '' })
+      const d = this.onapproveSession = new Deferred()
+      return d
     }
   }
 
   async resumeSession () {
-    this.methods.wc_sessionUpdate = this.updateSession
+    this.methods.wc_sessionUpdate = this.onupdateSession
     this.defaultMethod = this.makePeerRequest
-    await this.send({ topic: this.id, type: 'sub', silent: true, payload: '' })
-  }
-
-  async requestSession (params) {
-    let request = null
-    try {
-      if (!params.peerId) throw new Error('session missing peerId')
-      if (!params.peerMeta) throw new Error('session missing peerMeta')
-      request = {
-        id: this.currentRequestId,
-        method: 'wc_sessionRequest',
-        params
-      }
-      this.peerId = params.peerId
-      this.peerRequests.push(request)
-      this.peerRequests = this.peerRequests
-      this.methods.wc_sessionUpdate = this.updateSession
-      this.dispatchEvent(new Event('sessionUpdate'))
-    } catch (err) {
-      this.destroySession(err)
-      const d = this.onapproveSession
-      delete this.onapproveSession
-      d.reject(err)
-    }
-    return request.d
+    return this.openBridge(true)
   }
 
   approveSession (request) {
@@ -193,40 +205,33 @@ class WalletConnect extends RpcEngine {
       result.rpcUrl = this.rpcUrl
     }
     request.d.resolve(result)
+    this.dispatchEvent(new Event('sessionUpdate'))
     const d = this.onapproveSession
     delete this.onapproveSession
     if (d) d.resolve()
   }
 
-  async updateSession (params) {
-    if (params.approved === false) {
-      this.destroySession(new Error('peer terminated the session'))
-    } else {
-      this.peerAccounts = params.accounts || this.peerAccounts
-      this.chainId = params.chainId || this.chainId
-      this.rpcUrl = params.rpcUrl || this.rpcUrl
-      this.dispatchEvent(new Event('sessionUpdate'))
-    }
-  }
-
   destroySession (err) {
-    if (this.defaultMethod) {
+    clearTimeout(this.bridgeTimeout)
+    this.closed = true
+    if (this.socket) {
       this.notify('wc_sessionUpdate', {
         approved: false,
         accounts: []
       }).catch(err => {
         console.error('failed to notify peer about session destruction:', err.message)
       }).finally(() => {
-        this.closeBridge()
+        this.socket.close()
+        delete this.socket
       })
     }
     delete this.defaultMethod
     for (let name in this.methods) {
       delete this.methods[name]
     }
-    const d = this.onapproveSession
-    delete this.onapproveSession
-    if (d) d.reject(err)
+    if (this.onopenBridge) this.onopenBridge.reject(err)
+    if (this.onapproveSession) this.onapproveSession.reject(err)
+    this.close()
     const evt = new Event('sessionDestroy')
     if (err) evt.error = err
     this.dispatchEvent(evt)
@@ -262,40 +267,39 @@ class WalletConnect extends RpcEngine {
     return request.d
   }
 
-  async openBridge () {
-    let err = null
-    const d = new Deferred()
-    this.socket = new WebSocket(this.bridge + '?env=browser&protocol=wc&version=' + this.version)
-    const timeout = setTimeout(() => {
-      err = new Error('bridge connect timed out')
-      this.socket.close()
-    }, 5 * 1000)
-    const onopen = () => {
-      clearTimeout(timeout)
-      this.socket.removeEventListener('close', onclose)
-      this.socket.addEventListener('close', this.onbridgeClose)
-      this.socket.addEventListener('message', this.receive)
-      d.resolve()
+  async onrequestSession (params) {
+    let request = null
+    try {
+      if (!params.peerId) throw new Error('session missing peerId')
+      if (!params.peerMeta) throw new Error('session missing peerMeta')
+      request = {
+        id: this.currentRequestId,
+        method: 'wc_sessionRequest',
+        params
+      }
+      this.peerId = params.peerId
+      this.peerRequests.push(request)
+      this.peerRequests = this.peerRequests
+      this.methods.wc_sessionUpdate = this.onupdateSession
+      this.dispatchEvent(new Event('sessionUpdate'))
+    } catch (err) {
+      this.destroySession(err)
+      const d = this.onapproveSession
+      delete this.onapproveSession
+      d.reject(err)
     }
-    const onclose = evt => {
-      clearTimeout(timeout)
-      this.socket.removeEventListener('open', onopen)
-      d.reject(err || new Error('bridge closed unexpectedly'))
-    }
-    this.socket.addEventListener('open', onopen)
-    this.socket.addEventListener('close', onclose)
-    return d
+    return request.d
   }
 
-  closeBridge () {
-    if (!this.socket) return
-    this.socket.close()
-  }
-
-  onbridgeClose () {
-    this.socket = null
-    this.dispatchEvent(new Event('bridgeClose'))
-    this.close()
+  async onupdateSession (params) {
+    if (params.approved === false) {
+      this.destroySession(new Error('peer terminated the session'))
+    } else {
+      this.peerAccounts = params.accounts || this.peerAccounts
+      this.chainId = params.chainId || this.chainId
+      this.rpcUrl = params.rpcUrl || this.rpcUrl
+      this.dispatchEvent(new Event('sessionUpdate'))
+    }
   }
 
   async genKeys () {
