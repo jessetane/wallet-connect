@@ -46,12 +46,13 @@ wsServer.on('connection', (client, req) => {
         client.sessions.push(session)
       }
       if (session.cached) {
-        client.send(session.cached)
+        session.cached.forEach(msg => client.send(msg))
         delete session.cached
       }
     } else if (type === 'pub') {
-      if (!session.subs) {
-        session.cached = rawMessage
+      if (!session.subs || (session.subs.length === 1 && session.subs[0].id === client.id)) {
+        session.cached = session.cached || []
+        session.cached.push(rawMessage)
         return
       }
       session.subs.forEach(sub => sub.send(rawMessage))
