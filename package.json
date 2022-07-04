@@ -1,6 +1,6 @@
 {
   "name": "wallet-connect",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "dependencies": {
     "deferred": "github:jessetane/deferred#1.0.0",
