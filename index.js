@@ -23,14 +23,13 @@ class WalletConnect extends RpcEngine {
     this.peerMeta = opts.peerMeta || null
     this.peerAccounts = opts.peerAccounts || []
     this.peerRequests = opts.peerRequests || []
-    this.bridgeUrl = opts.bridgeUrl || 'https://bridge.walletconnect.org'
+    this.bridge = opts.bridge || 'https://bridge.walletconnect.org'
     if (opts.uri) {
       this.uri = opts.uri
     } else {
       this.initiator = opts.initiator === false ? false : true
       this.handshakeId = opts.handshakeId || Math.random().toString().slice(2)
       this.version = opts.version || '1'
-      this.bridge = opts.bridge || `${this.bridgeUrl.replace(/^http/, 'ws')}/?env=browser&protocol=wc&version=${this.version}&host=${this.meta && this.meta.host || 'localhost:8080'}`
       this.key = opts.key || this.crypto.getRandomValues(new Uint8Array(32))
     }
     this.receive = this.receive.bind(this)
@@ -40,13 +39,12 @@ class WalletConnect extends RpcEngine {
     let parts = uri.split('@')
     this.handshakeId = parts[0].slice(3)
     this.version = parts[1].split('?')[0]
-    this.bridge = decodeURIComponent(uri.split('bridge=')[1].split('&')[0]).replace(/^http/, 'ws')
+    this.bridge = decodeURIComponent(uri.split('bridge=')[1].split('&')[0])
     this.key = hex.decode(uri.split('key=')[1])
   }
 
   get uri () {
-    const bridgeUrl = encodeURIComponent(this.bridge.replace(/^ws/, 'http'))
-    return `wc:${this.handshakeId}@${this.version}?bridge=${bridgeUrl}&key=${hex.encode(this.key)}`
+    return `wc:${this.handshakeId}@${this.version}?bridge=${this.bridge}&key=${hex.encode(this.key)}`
   }
 
   get session () {
@@ -115,7 +113,7 @@ class WalletConnect extends RpcEngine {
     if (resolveWhenOpen) {
       this.onopenBridge = new Deferred()
     }
-    const socket = this.socket = new WebSocket(this.bridge + '?env=browser&protocol=wc&version=' + this.version)
+    const socket = this.socket = new WebSocket(this.bridge.replace(/^http/, 'ws'))
     const onopen = async () => {
       clearTimeout(this.bridgeTimeout)
       await this.send({ topic: this.id, type: 'sub', silent: true, payload: '' })
